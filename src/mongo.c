@@ -17,6 +17,9 @@
 
 #include "mongo.h"
 #include "md5.h"
+#include <apr.h>
+#include <apr_general.h>
+#include <apr_network_io.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -68,10 +71,10 @@ void mongo_message_send(mongo_connection * conn, mongo_message* mm){
         looping_write(conn, &head, sizeof(head));
         looping_write(conn, &mm->data, mm->head.len - sizeof(head));
     }MONGO_CATCH{
-        free(mm);
+        //free(mm);
         MONGO_RETHROW();
     }
-    free(mm);
+    //free(mm);
 }
 
 char * mongo_data_append( char * start , const void * data , int len ){
@@ -89,8 +92,8 @@ char * mongo_data_append64( char * start , const void * data){
     return start + 8;
 }
 
-mongo_message * mongo_message_create( int len , int id , int responseTo , int op ){
-    mongo_message * mm = (mongo_message*)bson_malloc( len );
+static mongo_message * mongo_message_create( apr_pool_t *p, int len , int id , int responseTo , int op ){
+    mongo_message * mm = (mongo_message*)apr_palloc(p,  len );
 
     if (!id)
         id = rand();
@@ -137,6 +140,24 @@ static int mongo_connect_helper( mongo_connection * conn ){
     return 0;
 }
 
+mongo_conn_return mongo_connect( apr_pool_t *p, mongo_connection * conn , mongo_connection_options * options ){
+    MONGO_INIT_EXCEPTION(&conn->exception);
+
+    conn->p = p;
+    conn->left_opts = (mongo_connection_options*)apr_palloc ( p, sizeof(mongo_connection_options));
+    conn->right_opts = NULL;
+
+    if ( options ){
+        memcpy( conn->left_opts , options , sizeof( mongo_connection_options ) );
+    } else {
+        strcpy( conn->left_opts->host , "127.0.0.1" );
+        conn->left_opts->port = 27017;
+    }
+
+    return mongo_connect_helper(conn);
+}
+
+/*
 mongo_conn_return mongo_connect( mongo_connection * conn , mongo_connection_options * options ){
     MONGO_INIT_EXCEPTION(&conn->exception);
 
@@ -152,6 +173,7 @@ mongo_conn_return mongo_connect( mongo_connection * conn , mongo_connection_opti
 
     return mongo_connect_helper(conn);
 }
+*/
 
 static void swap_repl_pair(mongo_connection * conn){
     mongo_connection_options * tmp = conn->left_opts;
@@ -159,18 +181,19 @@ static void swap_repl_pair(mongo_connection * conn){
     conn->right_opts = tmp;
 }
 
-mongo_conn_return mongo_connect_pair( mongo_connection * conn , mongo_connection_options * left, mongo_connection_options * right ){
+mongo_conn_return mongo_connect_pair( apr_pool_t *p, mongo_connection * conn , mongo_connection_options * left, mongo_connection_options * right ){
     conn->connected = 0;
     MONGO_INIT_EXCEPTION(&conn->exception);
 
+    conn->p = p;
     conn->left_opts = NULL;
     conn->right_opts = NULL;
 
     if ( !left || !right )
         return mongo_conn_bad_arg;
 
-    conn->left_opts = bson_malloc(sizeof(mongo_connection_options));
-    conn->right_opts = bson_malloc(sizeof(mongo_connection_options));
+    conn->left_opts = apr_palloc(p, sizeof(mongo_connection_options));
+    conn->right_opts = apr_palloc(p, sizeof(mongo_connection_options));
 
     memcpy( conn->left_opts,  left,  sizeof( mongo_connection_options ) );
     memcpy( conn->right_opts, right, sizeof( mongo_connection_options ) );
@@ -216,7 +239,7 @@ void mongo_insert_batch( mongo_connection * conn , const char * ns , bson ** bso
         size += bson_size(bsons[i]);
     }
 
-    mm = mongo_message_create( size , 0 , 0 , mongo_op_insert );
+    mm = mongo_message_create(conn->p,  size , 0 , 0 , mongo_op_insert );
 
     data = &mm->data;
     data = mongo_data_append32(data, &zero);
@@ -231,7 +254,8 @@ void mongo_insert_batch( mongo_connection * conn , const char * ns , bson ** bso
 
 void mongo_insert( mongo_connection * conn , const char * ns , bson * bson ){
     char * data;
-    mongo_message * mm = mongo_message_create( 16 /* header */
+    mongo_message * mm = mongo_message_create(conn->p, 
+                                              16 /* header */
                                              + 4 /* ZERO */
                                              + strlen(ns)
                                              + 1 + bson_size(bson)
@@ -247,7 +271,8 @@ void mongo_insert( mongo_connection * conn , const char * ns , bson * bson ){
 
 void mongo_update(mongo_connection* conn, const char* ns, const bson* cond, const bson* op, int flags){
     char * data;
-    mongo_message * mm = mongo_message_create( 16 /* header */
+    mongo_message * mm = mongo_message_create(conn->p, 
+                                             16 /* header */
                                              + 4  /* ZERO */
                                              + strlen(ns) + 1
                                              + 4  /* flags */
@@ -267,7 +292,8 @@ void mongo_update(mongo_connection* conn, const char* ns, const bson* cond, cons
 
 void mongo_remove(mongo_connection* conn, const char* ns, const bson* cond){
     char * data;
-    mongo_message * mm = mongo_message_create( 16 /* header */
+    mongo_message * mm = mongo_message_create( conn->p, 
+                                             16 /* header */
                                              + 4  /* ZERO */
                                              + strlen(ns) + 1
                                              + 4  /* ZERO */
@@ -293,7 +319,7 @@ mongo_reply * mongo_read_response( mongo_connection * conn ){
     looping_read(conn, &fields, sizeof(fields));
 
     bson_little_endian32(&len, &head.len);
-    out = (mongo_reply*)bson_malloc(len);
+    out = (mongo_reply*)apr_palloc(conn->p, len);
 
     out->head.len = len;
     bson_little_endian32(&out->head.id, &head.id);
@@ -308,7 +334,7 @@ mongo_reply * mongo_read_response( mongo_connection * conn ){
     MONGO_TRY{
         looping_read(conn, &out->objs, len-sizeof(head)-sizeof(fields));
     }MONGO_CATCH{
-        free(out);
+        //free(out);
         MONGO_RETHROW();
     }
 
@@ -319,7 +345,8 @@ mongo_cursor* mongo_find(mongo_connection* conn, const char* ns, bson* query, bs
     int sl;
     mongo_cursor * cursor;
     char * data;
-    mongo_message * mm = mongo_message_create( 16 + /* header */
+    mongo_message * mm = mongo_message_create(conn->p,  
+                                               16 + /* header */
                                                4 + /*  options */
                                                strlen( ns ) + 1 + /* ns */
                                                4 + 4 + /* skip,return */
@@ -341,20 +368,22 @@ mongo_cursor* mongo_find(mongo_connection* conn, const char* ns, bson* query, bs
 
     mongo_message_send( conn , mm );
 
-    cursor = (mongo_cursor*)bson_malloc(sizeof(mongo_cursor));
+    cursor = (mongo_cursor*)apr_palloc(conn->p, sizeof(mongo_cursor));
 
     MONGO_TRY{
         cursor->mm = mongo_read_response(conn);
     }MONGO_CATCH{
-        free(cursor);
+        //free(cursor);
         MONGO_RETHROW();
     }
 
     sl = strlen(ns)+1;
-    cursor->ns = bson_malloc(sl);
+    cursor->ns = apr_palloc(conn->p, sl);
     if (!cursor->ns){
-        free(cursor->mm);
-        free(cursor);
+        /*
+        //free(cursor->mm);
+        //free(cursor);
+        */
         return 0;
     }
     memcpy((void*)cursor->ns, ns, sl); /* cast needed to silence GCC warning */
@@ -367,7 +396,7 @@ bson_bool_t mongo_find_one(mongo_connection* conn, const char* ns, bson* query, 
     mongo_cursor* cursor = mongo_find(conn, ns, query, fields, 1, 0, 0);
 
     if (cursor && mongo_cursor_next(cursor)){
-        bson_copy(out, &cursor->current);
+        bson_copy(conn->p, out, &cursor->current);
         mongo_cursor_destroy(cursor);
         return 1;
     }else{
@@ -382,7 +411,7 @@ int64_t mongo_count(mongo_connection* conn, const char* db, const char* ns, bson
     bson out;
     int64_t count = -1;
 
-    bson_buffer_init(&bb);
+    bson_buffer_init(conn->p, &bb);
     bson_append_string(&bb, "count", ns);
     if (query && bson_size(query) > 5) /* not empty */
         bson_append_bson(&bb, "query", query);
@@ -421,8 +450,8 @@ bson_bool_t mongo_disconnect( mongo_connection * conn ){
 }
 
 bson_bool_t mongo_destroy( mongo_connection * conn ){
-    free(conn->left_opts);
-    free(conn->right_opts);
+//    free(conn->left_opts);
+//    free(conn->right_opts);
     conn->left_opts = NULL;
     conn->right_opts = NULL;
 
@@ -434,7 +463,8 @@ bson_bool_t mongo_cursor_get_more(mongo_cursor* cursor){
         mongo_connection* conn = cursor->conn;
         char* data;
         int sl = strlen(cursor->ns)+1;
-        mongo_message * mm = mongo_message_create(16 /*header*/
+        mongo_message * mm = mongo_message_create(conn->p, 
+                                                 16 /*header*/
                                                  +4 /*ZERO*/
                                                  +sl
                                                  +4 /*numToReturn*/
@@ -447,7 +477,7 @@ bson_bool_t mongo_cursor_get_more(mongo_cursor* cursor){
         data = mongo_data_append64(data, &cursor->mm->fields.cursorID);
         mongo_message_send(conn, mm);
 
-        free(cursor->mm);
+        //free(cursor->mm);
 
         MONGO_TRY{
             cursor->mm = mongo_read_response(cursor->conn);
@@ -493,7 +523,8 @@ void mongo_cursor_destroy(mongo_cursor* cursor){
 
     if (cursor->mm && cursor->mm->fields.cursorID){
         mongo_connection* conn = cursor->conn;
-        mongo_message * mm = mongo_message_create(16 /*header*/
+        mongo_message * mm = mongo_message_create(conn->p, 
+                                                 16 /*header*/
                                                  +4 /*ZERO*/
                                                  +4 /*numCursors*/
                                                  +8 /*cursorID*/
@@ -506,16 +537,16 @@ void mongo_cursor_destroy(mongo_cursor* cursor){
         MONGO_TRY{
             mongo_message_send(conn, mm);
         }MONGO_CATCH{
-            free(cursor->mm);
-            free((void*)cursor->ns);
-            free(cursor);
+            //free(cursor->mm);
+            //free((void*)cursor->ns);
+            //free(cursor);
             MONGO_RETHROW();
         }
     }
         
-    free(cursor->mm);
-    free((void*)cursor->ns);
-    free(cursor);
+    //free(cursor->mm);
+    //free((void*)cursor->ns);
+    //free(cursor);
 }
 
 bson_bool_t mongo_create_index(mongo_connection * conn, const char * ns, bson * key, int options, bson * out){
@@ -533,7 +564,7 @@ bson_bool_t mongo_create_index(mongo_connection * conn, const char * ns, bson * 
     }
     name[254] = '\0';
 
-    bson_buffer_init(&bb);
+    bson_buffer_init(conn->p, &bb);
     bson_append_bson(&bb, "key", key);
     bson_append_string(&bb, "ns", ns);
     bson_append_string(&bb, "name", name);
@@ -557,7 +588,7 @@ bson_bool_t mongo_create_simple_index(mongo_connection * conn, const char * ns, 
     bson b;
     bson_bool_t success;
 
-    bson_buffer_init(&bb);
+    bson_buffer_init(conn->p, &bb);
     bson_append_int(&bb, field, 1);
     bson_from_buffer(&b, &bb);
 
@@ -569,14 +600,14 @@ bson_bool_t mongo_create_simple_index(mongo_connection * conn, const char * ns, 
 bson_bool_t mongo_run_command(mongo_connection * conn, const char * db, bson * command, bson * out){
     bson fields;
     int sl = strlen(db);
-    char* ns = bson_malloc(sl + 5 + 1); /* ".$cmd" + nul */
+    char* ns = apr_palloc(conn->p, sl + 5 + 1); /* ".$cmd" + nul */
     bson_bool_t success;
 
     strcpy(ns, db);
     strcpy(ns+sl, ".$cmd");
 
     success = mongo_find_one(conn, ns, command, bson_empty(&fields), out);
-    free(ns);
+    //free(ns);
     return success;
 }
 bson_bool_t mongo_simple_int_command(mongo_connection * conn, const char * db, const char* cmdstr, int arg, bson * realout){
@@ -585,7 +616,7 @@ bson_bool_t mongo_simple_int_command(mongo_connection * conn, const char * db, c
     bson_buffer bb;
     bson_bool_t success = 0;
 
-    bson_buffer_init(&bb);
+    bson_buffer_init(conn->p, &bb);
     bson_append_int(&bb, cmdstr, arg);
     bson_from_buffer(&cmd, &bb);
 
@@ -611,7 +642,7 @@ bson_bool_t mongo_simple_str_command(mongo_connection * conn, const char * db, c
     bson_buffer bb;
     bson_bool_t success = 0;
 
-    bson_buffer_init(&bb);
+    bson_buffer_init(conn->p, &bb);
     bson_append_string(&bb, cmdstr, arg);
     bson_from_buffer(&cmd, &bb);
 
@@ -720,11 +751,11 @@ void mongo_cmd_add_user(mongo_connection* conn, const char* db, const char* user
 
     mongo_pass_digest(user, pass, hex_digest);
 
-    bson_buffer_init(&bb);
+    bson_buffer_init(conn->p, &bb);
     bson_append_string(&bb, "user", user);
     bson_from_buffer(&user_obj, &bb);
 
-    bson_buffer_init(&bb);
+    bson_buffer_init(conn->p, &bb);
     bson_append_start_object(&bb, "$set");
     bson_append_string(&bb, "pwd", hex_digest);
     bson_append_finish_object(&bb);
@@ -734,13 +765,13 @@ void mongo_cmd_add_user(mongo_connection* conn, const char* db, const char* user
     MONGO_TRY{
         mongo_update(conn, ns, &user_obj, &pass_obj, MONGO_UPDATE_UPSERT);
     }MONGO_CATCH{
-        free(ns);
+        //free(ns);
         bson_destroy(&user_obj);
         bson_destroy(&pass_obj);
         MONGO_RETHROW();
     }
 
-    free(ns);
+    //free(ns);
     bson_destroy(&user_obj);
     bson_destroy(&pass_obj);
 }
@@ -772,7 +803,7 @@ bson_bool_t mongo_cmd_authenticate(mongo_connection* conn, const char* db, const
     mongo_md5_finish(&st, digest);
     digest2hex(digest, hex_digest);
 
-    bson_buffer_init(&bb);
+    bson_buffer_init(conn->p, &bb);
     bson_append_int(&bb, "authenticate", 1);
     bson_append_string(&bb, "user", user);
     bson_append_string(&bb, "nonce", nonce);

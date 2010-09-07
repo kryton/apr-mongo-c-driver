@@ -17,6 +17,10 @@
 
 #ifndef _MONGO_H_
 #define _MONGO_H_
+#include <apr.h>
+#include <apr_general.h>
+#include <apr_network_io.h>
+#include <apr_general.h>
 
 #include "mongo_except.h"
 #include "bson.h"
@@ -48,6 +52,7 @@ typedef struct {
     int sock;
     bson_bool_t connected;
     mongo_exception_context exception;
+    apr_pool_t *p;
 } mongo_connection;
 
 #pragma pack(1)
@@ -110,8 +115,9 @@ typedef enum {
 /**
  * @param options can be null
  */
-mongo_conn_return mongo_connect( mongo_connection * conn , mongo_connection_options * options );
-mongo_conn_return mongo_connect_pair( mongo_connection * conn , mongo_connection_options * left, mongo_connection_options * right );
+mongo_conn_return mongo_connect( apr_pool_t *p, mongo_connection * conn , mongo_connection_options * options );
+//mongo_conn_return mongo_connect( mongo_connection * conn , mongo_connection_options * options );
+mongo_conn_return mongo_connect_pair( apr_pool_t *p,  mongo_connection * conn , mongo_connection_options * left, mongo_connection_options * right );
 mongo_conn_return mongo_reconnect( mongo_connection * conn ); /* you will need to reauthenticate after calling */
 bson_bool_t mongo_disconnect( mongo_connection * conn ); /* use this if you want to be able to reconnect */
 bson_bool_t mongo_destroy( mongo_connection * conn ); /* you must call this even if connection failed */

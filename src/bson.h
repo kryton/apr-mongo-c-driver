@@ -81,7 +81,7 @@ typedef int64_t bson_date_t; /* milliseconds since epoch UTC */
 
 
 bson * bson_empty(bson * obj); /* returns pointer to static empty bson object */
-void bson_copy(bson* out, const bson* in); /* puts data in new buffer. NOOP if out==NULL */
+void bson_copy(apr_pool_t *p, bson* out, const bson* in); /* puts data in new buffer. NOOP if out==NULL */
 bson * bson_from_buffer(bson * b, bson_buffer * buf);
 bson * bson_init( bson * b , char * data , bson_bool_t mine );
 int bson_size(const bson * b );
@@ -157,7 +157,7 @@ time_t bson_oid_generated_time(bson_oid_t* oid); /* Gives the time the OID was c
    BUILDING
    ------------------------------ */
 
-bson_buffer * bson_buffer_init( bson_buffer * b );
+bson_buffer * bson_buffer_init(apr_pool_t *p,  bson_buffer * b );
 bson_buffer * bson_ensure_space( bson_buffer * b , const int bytesNeeded );
 
 /**
@@ -199,7 +199,7 @@ void bson_incnumstr(char* str);
    ERROR HANDLING - also used in mongo code
    ------------------------------ */
 
-void * bson_malloc(int size); /* checks return value */
+// void * bson_malloc(int size); /* checks return value */
 
 /* bson_err_handlers shouldn't return!!! */
 typedef void(*bson_err_handler)(const char* errmsg);

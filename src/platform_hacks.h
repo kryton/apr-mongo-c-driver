@@ -34,6 +34,7 @@
 #define MONGO_EXTERN_C_END
 #endif
 
+#define MONGO_HAVE_STDINT 1
 
 #if defined(MONGO_HAVE_STDINT) || __STDC_VERSION__ >= 199901L
 #include <stdint.h>

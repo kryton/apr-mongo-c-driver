@@ -1,6 +1,10 @@
 
 *~
 *.o
+*.lo
+*.la
+.*swp
+.libs
 *.os
 *.obj
 *.a

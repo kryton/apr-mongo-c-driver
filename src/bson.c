@@ -15,12 +15,15 @@
  *    limitations under the License.
  */
 
-#include "bson.h"
+#include <apr.h>
+#include <apr_general.h>
+#include <apr_network_io.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
 
+#include "bson.h"
 const int initialBufferSize = 128;
 
 /* only need one of these */
@@ -35,9 +38,9 @@ bson * bson_empty(bson * obj){
     return bson_init(obj, data, 0);
 }
 
-void bson_copy(bson* out, const bson* in){
+void bson_copy(apr_pool_t *p, bson* out, const bson* in){
     if (!out) return;
-    out->data = bson_malloc(bson_size(in));
+    out->data = apr_palloc(p, bson_size(in));
     out->owned = 1;
     memcpy(out->data, in->data, bson_size(in));
 }
@@ -59,8 +62,11 @@ int bson_size(const bson * b ){
     return i;
 }
 void bson_destroy( bson * b ){
+
+    /*
     if ( b->owned && b->data )
         free( b->data );
+        */
     b->data = 0;
     b->owned = 0;
 }
@@ -383,8 +389,8 @@ void bson_iterator_subiterator(const bson_iterator * i, bson_iterator * sub){
    BUILDING
    ------------------------------ */
 
-bson_buffer * bson_buffer_init( bson_buffer * b ){
-    b->buf = (char*)bson_malloc( initialBufferSize );
+bson_buffer * bson_buffer_init( apr_pool_t *p, bson_buffer * b ){
+    b->buf = (char*)apr_palloc( p, initialBufferSize );
     b->bufSize = initialBufferSize;
     b->cur = b->buf + 4;
     b->finished = 0;
@@ -444,7 +450,7 @@ char * bson_buffer_finish( bson_buffer * b ){
 }
 
 void bson_buffer_destroy( bson_buffer * b ){
-    free( b->buf );
+    //free( b->buf );
     b->buf = 0;
     b->cur = 0;
     b->finished = 1;
@@ -609,11 +615,13 @@ bson_buffer * bson_append_finish_object( bson_buffer * b ){
     return b;
 }
 
+/*
 void* bson_malloc(int size){
     void* p = malloc(size);
     bson_fatal_msg(!!p, "malloc() failed");
     return p;
 }
+*/
 
 static bson_err_handler err_handler = NULL;
 
