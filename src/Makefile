@@ -1,10 +1,10 @@
 APR_CFLAGS=`apr-1-config --includes --cppflags --cflags`
 APR_LIBS=`apr-1-config --link-libtool --libs --ldflags`
 
-all: mongo.la
+all: libmongo.la
 
-mongo.la: bson.lo md5.lo mongo.lo numbers.lo 
-	libtool --silent --mode=link gcc -o $@  ${APR_LIBS}  -module -avoid-version bson.lo md5.lo mongo.lo numbers.lo
+libmongo.la: bson.lo md5.lo mongo.lo numbers.lo 
+	libtool --mode=link gcc -o $@  ${APR_LIBS}   -rpath /usr/local/lib -module -avoid-version bson.lo md5.lo mongo.lo numbers.lo
 
 #utils.lo numbers.lo mongo.lo md5.lo bson.lo mod_optin.lo
 
