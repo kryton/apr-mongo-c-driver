@@ -47,9 +47,12 @@ typedef struct mongo_connection_options {
 typedef struct {
     mongo_connection_options* left_opts; /* always current server */
     mongo_connection_options* right_opts; /* unused with single server */
-    struct sockaddr_in sa;
-    socklen_t addressSize;
-    int sock;
+    apr_socket_t *socket;
+    apr_sockaddr_t *server_address;
+
+    //struct sockaddr_in sa;
+    //socklen_t addressSize;
+    //int sock;
     bson_bool_t connected;
     mongo_exception_context exception;
     apr_pool_t *p;

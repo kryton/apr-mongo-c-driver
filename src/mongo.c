@@ -15,8 +15,6 @@
  *    limitations under the License.
  */
 
-#include "mongo.h"
-#include "md5.h"
 #include <apr.h>
 #include <apr_general.h>
 #include <apr_network_io.h>
@@ -26,6 +24,9 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+
+#include "mongo.h"
+#include "md5.h"
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -41,19 +42,25 @@ static const int one = 1;
 
 static void looping_write(mongo_connection * conn, const void* buf, int len){
     const char* cbuf = buf;
+    apr_status_t rv;
     while (len){
-        int sent = send(conn->sock, cbuf, len, 0);
-        if (sent == -1) MONGO_THROW(MONGO_EXCEPT_NETWORK);
-        cbuf += sent;
-        len -= sent;
+        apr_size_t nr_bytes= len; 
+//        int sent = send(conn->sock, cbuf, len, 0);
+        rv = apr_socket_send( conn->socket, cbuf, &nr_bytes);
+        if (nr_bytes == -1 || rv != APR_SUCCESS) MONGO_THROW(MONGO_EXCEPT_NETWORK);
+        cbuf += nr_bytes;
+        len -= nr_bytes;
     }
 }
 
 static void looping_read(mongo_connection * conn, void* buf, int len){
+    apr_status_t rv;
     char* cbuf = buf;
     while (len){
-        int sent = recv(conn->sock, cbuf, len, 0);
-        if (sent == 0 || sent == -1) MONGO_THROW(MONGO_EXCEPT_NETWORK);
+        apr_size_t sent=len; 
+        rv = apr_socket_recv( conn->socket, cbuf, &sent );
+//        int sent = recv(conn->sock, cbuf, len, 0);
+        if (sent == 0 || sent == -1|| rv != APR_SUCCESS) MONGO_THROW(MONGO_EXCEPT_NETWORK);
         cbuf += sent;
         len -= sent;
     }
@@ -110,18 +117,31 @@ static mongo_message * mongo_message_create( apr_pool_t *p, int len , int id , i
 /* ----------------------------
    connection stuff
    ------------------------------ */
-static int mongo_connect_helper( mongo_connection * conn ){
+static apr_status_t mongo_connect_helper( mongo_connection * conn ){
     /* setup */
-    conn->sock = 0;
+    apr_status_t rv;
+    conn->socket = NULL;
     conn->connected = 0;
 
+    rv = apr_sockaddr_info_get(&conn->server_address, conn->left_opts->host, APR_UNSPEC, conn->left_opts->port, 0, conn->p);
+    if ( rv != APR_SUCCESS ) {
+        return rv;
+    }
+    /*
     memset( conn->sa.sin_zero , 0 , sizeof(conn->sa.sin_zero) );
     conn->sa.sin_family = AF_INET;
     conn->sa.sin_port = htons(conn->left_opts->port);
     conn->sa.sin_addr.s_addr = inet_addr( conn->left_opts->host );
     conn->addressSize = sizeof(conn->sa);
+    */
 
     /* connect */
+    rv = apr_socket_create(&conn->socket, APR_INET, SOCK_STREAM, APR_PROTO_TCP,  conn->p);
+    if ( rv != APR_SUCCESS ) {
+        return rv;
+    }
+
+    /*
     conn->sock = socket( AF_INET, SOCK_STREAM, 0 );
     if ( conn->sock <= 0 ){
         return mongo_conn_no_socket;
@@ -130,14 +150,31 @@ static int mongo_connect_helper( mongo_connection * conn ){
     if ( connect( conn->sock , (struct sockaddr*)&conn->sa , conn->addressSize ) ){
         return mongo_conn_fail;
     }
+    */
+
+    rv = apr_socket_connect(conn->socket, conn->server_address);
+    if ( rv != APR_SUCCESS ) {
+        if ( APR_STATUS_IS_EAFNOSUPPORT(rv )) {
+            // IP6 ?
+            rv = apr_socket_create(&conn->socket, APR_INET6, SOCK_STREAM, APR_PROTO_TCP, conn->p);
+            if ( rv != APR_SUCCESS ) {
+                return rv;
+            }
+            rv = apr_socket_connect(conn->socket, conn->server_address);
+            if ( rv != APR_SUCCESS ) {
+                return rv;
+            }
+         }
+    }
 
     /* nagle */
-    setsockopt( conn->sock, IPPROTO_TCP, TCP_NODELAY, (char *) &one, sizeof(one) );
+    //    FIXME: figure out nagle option for APR
+//    setsockopt( conn->sock, IPPROTO_TCP, TCP_NODELAY, (char *) &one, sizeof(one) );
 
     /* TODO signals */
 
     conn->connected = 1;
-    return 0;
+    return APR_SUCCESS;
 }
 
 mongo_conn_return mongo_connect( apr_pool_t *p, mongo_connection * conn , mongo_connection_options * options ){
@@ -156,24 +193,6 @@ mongo_conn_return mongo_connect( apr_pool_t *p, mongo_connection * conn , mongo_
 
     return mongo_connect_helper(conn);
 }
-
-/*
-mongo_conn_return mongo_connect( mongo_connection * conn , mongo_connection_options * options ){
-    MONGO_INIT_EXCEPTION(&conn->exception);
-
-    conn->left_opts = bson_malloc(sizeof(mongo_connection_options));
-    conn->right_opts = NULL;
-
-    if ( options ){
-        memcpy( conn->left_opts , options , sizeof( mongo_connection_options ) );
-    } else {
-        strcpy( conn->left_opts->host , "127.0.0.1" );
-        conn->left_opts->port = 27017;
-    }
-
-    return mongo_connect_helper(conn);
-}
-*/
 
 static void swap_repl_pair(mongo_connection * conn){
     mongo_connection_options * tmp = conn->left_opts;
@@ -437,13 +456,9 @@ bson_bool_t mongo_disconnect( mongo_connection * conn ){
     if ( ! conn->connected )
         return 1;
 
-#ifdef _WIN32
-    closesocket( conn->sock );
-#else
-    close( conn->sock );
-#endif
+    apr_socket_close( conn->socket );
     
-    conn->sock = 0;
+    conn->socket = NULL;
     conn->connected = 0;
     
     return 0;
