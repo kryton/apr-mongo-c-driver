@@ -828,3 +828,26 @@ bson_bool_t mongo_cmd_authenticate(mongo_connection* conn, const char* db, const
 
     return success;
 }
+
+char *mongo_strerror(mongo_conn_return statcode, char *buf, apr_size_t bufsize)
+{
+    const char *s;
+    switch ( statcode ) {
+        case mongo_conn_success: 
+            s="No Error";
+            break;
+        case mongo_conn_bad_arg: 
+            s="bad arguments";
+            break;
+        case mongo_conn_no_socket: 
+            s="no socket";
+            break;
+        case mongo_conn_fail: 
+            s="connection fail";
+            break;
+        default:
+            s="unknown error";
+    }
+    apr_cpystrn(buf,s,bufsize);
+    return buf;
+}

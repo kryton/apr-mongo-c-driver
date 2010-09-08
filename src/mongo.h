@@ -181,6 +181,7 @@ bson_bool_t mongo_cmd_ismaster(mongo_connection * conn, bson * out);
 bson_bool_t mongo_cmd_get_last_error(mongo_connection * conn, const char * db, bson * out);
 bson_bool_t mongo_cmd_get_prev_error(mongo_connection * conn, const char * db, bson * out);
 void        mongo_cmd_reset_error(mongo_connection * conn, const char * db);
+char       *mongo_strerror(mongo_conn_return statcode, char *buf, apr_size_t bufsize);
 
 /* ----------------------------
    UTILS
