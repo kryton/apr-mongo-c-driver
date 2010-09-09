@@ -118,7 +118,7 @@ typedef enum {
 /**
  * @param options can be null
  */
-mongo_conn_return mongo_connect( apr_pool_t *p, mongo_connection * conn , mongo_connection_options * options );
+apr_status_t mongo_connect( apr_pool_t *p, mongo_connection * conn , mongo_connection_options * options );
 //mongo_conn_return mongo_connect( mongo_connection * conn , mongo_connection_options * options );
 mongo_conn_return mongo_connect_pair( apr_pool_t *p,  mongo_connection * conn , mongo_connection_options * left, mongo_connection_options * right );
 mongo_conn_return mongo_reconnect( mongo_connection * conn ); /* you will need to reauthenticate after calling */

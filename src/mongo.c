@@ -177,7 +177,7 @@ static apr_status_t mongo_connect_helper( mongo_connection * conn ){
     return APR_SUCCESS;
 }
 
-mongo_conn_return mongo_connect( apr_pool_t *p, mongo_connection * conn , mongo_connection_options * options ){
+apr_status_t mongo_connect( apr_pool_t *p, mongo_connection * conn , mongo_connection_options * options ){
     MONGO_INIT_EXCEPTION(&conn->exception);
 
     conn->p = p;

@@ -170,7 +170,7 @@ void bson_print_raw( const char * data , int depth ){
             bson_print_raw( bson_iterator_value( &i ) , depth + 1 );
             break;
         default:
-            fprintf( stderr , "can't print type : %d\n" , t );
+            printf(  "???can't print type : %d???" , t );
         }
         printf( "\n" );
     }
