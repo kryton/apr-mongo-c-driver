@@ -8,19 +8,19 @@ LIBTOOL=/usr/local/apache2/build/libtool
 all: libmongo.la
 
 libmongo.la: bson.lo md5.lo mongo.lo numbers.lo 
-	libtool --silent --mode=link gcc -o $@  ${APR_LIBS}    -version-info ${VERSION}  -rpath ${INSTALLDIR} bson.lo md5.lo mongo.lo numbers.lo
+	${LIBTOOL} --silent --mode=link gcc -o $@  ${APR_LIBS}    -version-info ${VERSION}  -rpath ${INSTALLDIR} bson.lo md5.lo mongo.lo numbers.lo
 
 clean:
 	rm -f *.o *.slo *.lo *.la
 	rm -rf .libs
 
 install: libmongo.la
-	libtool --silent --mode=install cp $<  ${INSTALLDIR}
+	${LIBTOOL} --silent --mode=install cp $<  ${INSTALLDIR}
 
 #	${INSTDSO} SH_LIBTOOL=${LIBTOOL}  $< ${INSTALLDIR}
 
 %.lo: %.c bson.h mongo.h  
-	libtool --silent --mode=compile gcc -prefer-pic  ${APR_CFLAGS}  -no-cpp-precomp -g -O2 -c -o $@ $<  
+	${LIBTOOL} --silent --mode=compile gcc -prefer-pic  ${APR_CFLAGS}  -no-cpp-precomp -g -O2 -c -o $@ $<  
 
 
 #x.o: x.c
